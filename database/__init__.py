@@ -30,12 +30,15 @@ def score_match(offsets: List[int]) -> int:
 
 def get_matches(hashes: List[Tuple[str, int, int]]) -> Dict[str, int]:
     
-    matches = set()
+    matches = {}
 
     for h in hashes:
         try:
             for match in HASH_TABLE[h[0]]:
-                matches.add(match[1])
+                try:
+                    matches[match[1]].append(match[0] - h[1])
+                except KeyError:
+                    matches[match[1]] = [match[0] - h[1]]
         except KeyError:
             continue
     

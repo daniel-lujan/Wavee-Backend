@@ -5,10 +5,23 @@ from scipy import ndimage
 from settings import SPECTRUM_IMAGE_FILTER_SIZE, CONSTELLATION_SHAPE
 from typing import List, Tuple
 from io import BytesIO
+from os import PathLike
 
 
-def map_to_points(Cmap: NDArray) -> NDArray:
+def map_to_points(
+    Cmap: NDArray
+    ) -> List[Tuple[int, int]]:
+    """
+    Helper function to convert matrix constellation map to points list. Saves
+    the `(x, y)` coordinates for every `True` entry.
+
+    Args:
+      Cmap (`NDArray`): Constellation map matrix.
     
+    Returns:
+      `List[Tuple[int, int]]`: List of consellation map points.
+    """
+
     points = []
 
     for i, row in enumerate(Cmap):
@@ -20,47 +33,62 @@ def map_to_points(Cmap: NDArray) -> NDArray:
     
     return points
 
-def compute_spectrogram(
-        fn_wav: BytesIO,
-        Fs: int = 22050,
+def get_spectrogram(
+        wav: BytesIO | PathLike,
+        Fs: int = 44100,
         bin_max: int = 128,
-        frame_max: int = None) -> NDArray:
+        duration: int = None,
+        offset : int = None) -> NDArray:
     
-    """Adapted from: https://www.audiolabs-erlangen.de/resources/MIR/FMP/C7/C7S1_AudioIdentification.html
+    """
+    Computes the spectrogram for an audio signal.
 
-    No documentation.
+    Args:
+      wav (`BytesIO` | `PathLike`): File (or filename) to be processed.
+      Fs (`int`): Frequency sample of the audio in hertz (hz). Defaults to `44100`.
+      bin_max (`int`): Number of maximum frequency bins to return. Defaults to `128`.
+      duration (`int`): Optional maximum duration to be processed. If `None`, the whole
+      audio will be processed. Defaults to `None`.
+      offset (`int`): Optional offset to start the audio processing. If `None` the signal
+      will be processed from the beggining. Defaults to `None`.
+    
+    Returns:
+      `NDArray`: Audio spectrogram as matrix.
     """
 
-    x, Fs = librosa.load(fn_wav, sr=Fs)
-    X = librosa.stft(x)
+    x, Fs = librosa.load(wav, sr=Fs,  duration=duration, offset=offset)
+    
+    X = librosa.stft(x, n_fft=4096, hop_length=1024)
+
     if bin_max is None:
         bin_max = X.shape[0]
-    if frame_max is None:
-        frame_max = X.shape[0]
-    Y = np.abs(X[:bin_max, :frame_max])
-    return Y
 
-def compute_constellation_map(Y: NDArray, thresh: float = 0.01) -> List[Tuple[int,int]]:
-    """Compute constellation map (implementation using image processing)
+    return np.abs(X[:bin_max, :])
+
+def compute_constellation_map(
+    spectrogram: NDArray,
+    thresh: float = 0.01,
+    size: int = SPECTRUM_IMAGE_FILTER_SIZE
+    ) -> List[Tuple[int, int]]:
+    """Computes constellation map (implementation using image processing)
 
     Adapted from: https://www.audiolabs-erlangen.de/resources/MIR/FMP/C7/C7S1_AudioIdentification.html
 
     Args:
-        Y (np.ndarray): Spectrogram (magnitude)
-        dist_freq (int): Neighborhood parameter for frequency direction (kappa) (Default value = 7)
-        dist_time (int): Neighborhood parameter for time direction (tau) (Default value = 7)
-        thresh (float): Threshold parameter for minimal peak magnitude (Default value = 0.01)
+        spectrogram (`NDArray`): Audio spectrogram matrix.
+        thresh (`float`): Threshold parameter for minimal peak magnitude. Defaults to `0.01`.
+        size (`int`): Spectrogram image filter size. Defaults to `DEFAULT_SPECTROGRAM_IMAGE_FILTER_SIZE`.
 
     Returns:
-        Cmap (np.ndarray): Boolean mask for peak structure (same size as Y)
+        `List[Tuple[int, int]]`: List of constellation map `True` points.
     """
-    
-    result = ndimage.maximum_filter(Y, size=SPECTRUM_IMAGE_FILTER_SIZE, mode='constant')
-    Cmap = np.logical_and(Y == result, result > thresh)
+
+    result = ndimage.maximum_filter(spectrogram, size=size, mode='constant')
+    Cmap = np.logical_and(spectrogram == result, result > thresh)
 
     return map_to_points(Cmap)
 
-def match_binary_matrices_tol(C_ref, C_est, tol_freq=0, tol_time=0):
+def match_binary_matrices_tol(C_ref, C_est, tol_freq=4, tol_time=0):
     """| Compare binary matrices with tolerance
     | Note: The tolerance parameters should be smaller than the minimum distance of
       peaks (1-entries in C_ref ad C_est) to obtain meaningful TP, FN, FP values
@@ -80,32 +108,25 @@ def match_binary_matrices_tol(C_ref, C_est, tol_freq=0, tol_time=0):
         C_AND (np.ndarray): Boolean mask of AND of C_ref and C_est (with tolerance)
     """
     assert C_ref.shape == C_est.shape, "Dimensions need to agree"
-    N = np.sum(C_ref)
-    M = np.sum(C_est)
     # Expand C_est with 2D-max-filter using the tolerance parameters
-    C_est_max = ndimage.maximum_filter(C_est, size=(2*tol_freq+1, 2*tol_time+1),
+    C_est_max = ndimage.maximum_filter(C_est, size=SPECTRUM_IMAGE_FILTER_SIZE,
                                        mode='constant')
     C_AND = np.logical_and(C_est_max, C_ref)
     TP = np.sum(C_AND)
-    FN = N - TP
-    FP = M - TP
-    return TP, FN, FP, C_AND
+    return TP
 
 def points_to_matrix(points):
-    Cmap = np.full(CONSTELLATION_SHAPE, False)
+    Cmap = np.full((CONSTELLATION_SHAPE[0]+1, np.max(points, axis=(0,1))+1), False)
 
     for point in points:
-        np.put(Cmap, point, True)
+        Cmap[point[0], point[1]] = True
     
     return Cmap
 
+def compute_matching_function(C_D, C_Q, offsets):
+    """Computes matching function for constellation maps
 
-
-def score_similarity(C_D, C_Q, tol_freq=1, tol_time=1):
-    """
-    Adapted from: https://www.audiolabs-erlangen.de/resources/MIR/FMP/C7/C7S1_AudioIdentification.html
-
-    Computes matching function for constellation maps
+    Notebook: C7/C7S1_AudioIdentification.ipynb
 
     Args:
         C_D (np.ndarray): Binary matrix used as dababase document
@@ -121,16 +142,14 @@ def score_similarity(C_D, C_Q, tol_freq=1, tol_time=1):
     C_D = points_to_matrix(C_D)
     C_Q = points_to_matrix(C_Q)
 
-    L = C_D.shape[1]
     N = C_Q.shape[1]
-    M = L - N
-    assert M >= 0, "Query must be shorter than document"
-    max_matching_points = 0
-    for m in range(M + 1):
-        C_D_crop = C_D[:, m:m+N]
-        TP, FN, FP, C_AND = match_binary_matrices_tol(C_D_crop, C_Q,
-                                                      tol_freq=tol_freq, tol_time=tol_time)
-        if max_matching_points < TP:
-            max_matching_points = TP
+
+    max_matches = 0
     
-    return int(max_matching_points)
+    for m in offsets:
+        C_D_crop = C_D[:, m:m+N]
+        TP = match_binary_matrices_tol(C_D_crop, C_Q)
+        if TP > max_matches:
+            max_matches = TP
+    
+    return int(max_matches)

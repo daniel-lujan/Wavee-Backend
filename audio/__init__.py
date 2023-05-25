@@ -6,16 +6,17 @@ import database
 
 def get_fingerprint(audio: BytesIO) -> List[Tuple[int, int]]:
     
-    Y = processing.compute_spectrogram(audio)
+    Y = processing.get_spectrogram(audio)
 
     return processing.compute_constellation_map(Y)
 
-def score_matches(matches, query_fingerprint):
+def score_matches(matches: Dict, query_fingerprint):
 
     scored_matches = {}
 
-    for m in matches:
-        scored_matches[m] = processing.score_similarity(database.SONGS_DB[m], query_fingerprint)
+    for match_song_id, offsets in matches.items():
+        scored_matches[match_song_id] = processing.compute_matching_function(
+            database.SONGS_DB[match_song_id], query_fingerprint, offsets)
     
     return scored_matches
 

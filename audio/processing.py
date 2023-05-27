@@ -88,34 +88,16 @@ def compute_constellation_map(
 
     return map_to_points(Cmap)
 
-def match_binary_matrices_tol(C_ref, C_est, tol_freq=4, tol_time=0):
-    """| Compare binary matrices with tolerance
-    | Note: The tolerance parameters should be smaller than the minimum distance of
-      peaks (1-entries in C_ref ad C_est) to obtain meaningful TP, FN, FP values
-
-    Notebook: C7/C7S1_AudioIdentification.ipynb
+def points_to_matrix(points: List[Tuple[int, int]]):
+    """Helper function to convert points list to matrix constellation map.
 
     Args:
-        C_ref (np.ndarray): Binary matrix used as reference
-        C_est (np.ndarray): Binary matrix used as estimation
-        tol_freq (int): Tolerance in frequency direction (vertical) (Default value = 0)
-        tol_time (int): Tolerance in time direction (horizontal) (Default value = 0)
+        points (``List[Tuple[int, int]]``): Points list.
 
     Returns:
-        TP (int): True positives
-        FN (int): False negatives
-        FP (int): False positives
-        C_AND (np.ndarray): Boolean mask of AND of C_ref and C_est (with tolerance)
+        ``NDArray``: Constellation map matrix.
     """
-    assert C_ref.shape == C_est.shape, "Dimensions need to agree"
-    # Expand C_est with 2D-max-filter using the tolerance parameters
-    C_est_max = ndimage.maximum_filter(C_est, size=SPECTRUM_IMAGE_FILTER_SIZE,
-                                       mode='constant')
-    C_AND = np.logical_and(C_est_max, C_ref)
-    TP = np.sum(C_AND)
-    return TP
 
-def points_to_matrix(points):
     Cmap = np.full((CONSTELLATION_SHAPE[0]+1, np.max(points, axis=(0,1))+1), False)
 
     for point in points:
@@ -123,24 +105,41 @@ def points_to_matrix(points):
     
     return Cmap
 
-def compute_matching_function(C_D, C_Q, offsets):
-    """Computes matching function for constellation maps
-
-    Notebook: C7/C7S1_AudioIdentification.ipynb
+def match_binary_matrices(matrix1: NDArray, matrix2: NDArray):
+    """
+    Computes the number of matches between two binary matrices.
 
     Args:
-        C_D (np.ndarray): Binary matrix used as dababase document
-        C_Q (np.ndarray): Binary matrix used as query document
-        tol_freq (int): Tolerance in frequency direction (vertical) (Default value = 1)
-        tol_time (int): Tolerance in time direction (horizontal) (Default value = 1)
+        matrix1 (`NDArray`): First binary matrix.\n
+        matrix2 (`NDArray`): Second binary matrix.\n
 
     Returns:
-        Delta (np.ndarray): Matching function
-        shift_max (int): Optimal shift position maximizing Delta
+        ``int``: Matches between the two matrices.
     """
 
-    C_D = points_to_matrix(C_D)
-    C_Q = points_to_matrix(C_Q)
+    C_AND = np.logical_and(matrix1, matrix2)
+    return np.sum(C_AND)
+
+def get_max_matches(
+        db_cmap: List[Tuple[int, int]],
+        query_cmap: List[Tuple[int, int]],
+        offsets: List[int]):
+    
+    """
+    Compares two constellation maps at different offsets and returns
+    the maximum number of matches.
+
+    Args:
+        db_cmap (`List[Tuple[int, int]]`): Constellation map of the database audio. \n
+        query_cmap (`List[Tuple[int, int]]`): Constellation map of the query audio. \n
+        offsets (`List[int]`): List of offsets to be tested. \n
+
+    Returns:
+        ``int``: Maximum number of matches between the two constellation maps.
+    """
+
+    C_D = points_to_matrix(db_cmap)
+    C_Q = points_to_matrix(query_cmap)
 
     N = C_Q.shape[1]
 
@@ -148,7 +147,11 @@ def compute_matching_function(C_D, C_Q, offsets):
     
     for m in offsets:
         C_D_crop = C_D[:, m:m+N]
-        TP = match_binary_matrices_tol(C_D_crop, C_Q)
+        if C_D_crop.shape == C_Q.shape:
+            TP = match_binary_matrices(C_D_crop, C_Q)
+        else:
+            sd = C_D_crop.shape[1] - C_Q.shape[1]
+            TP = match_binary_matrices(C_D_crop, C_Q[:,:sd])
         if TP > max_matches:
             max_matches = TP
     

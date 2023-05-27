@@ -15,7 +15,7 @@ def score_matches(matches: Dict, query_fingerprint):
     scored_matches = {}
 
     for match_song_id, offsets in matches.items():
-        scored_matches[match_song_id] = processing.compute_matching_function(
+        scored_matches[match_song_id] = processing.get_max_matches(
             database.SONGS_DB[match_song_id], query_fingerprint, offsets)
     
     return scored_matches

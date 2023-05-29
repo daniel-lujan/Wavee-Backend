@@ -105,7 +105,7 @@ def points_to_matrix(points: List[Tuple[int, int]]):
     
     return Cmap
 
-def match_binary_matrices(matrix1: NDArray, matrix2: NDArray):
+def match_binary_matrices(matrix1: NDArray, matrix2: NDArray, tol_freq: int = 0, tol_time: int = 100):
     """
     Computes the number of matches between two binary matrices.
 
@@ -117,8 +117,10 @@ def match_binary_matrices(matrix1: NDArray, matrix2: NDArray):
         ``int``: Matches between the two matrices.
     """
 
-    C_AND = np.logical_and(matrix1, matrix2)
-    return np.sum(C_AND)
+    matrix2_max = ndimage.maximum_filter(matrix2, size=(2*tol_freq+1, 2*tol_time+1),
+                                       mode='constant')
+    C_AND = np.logical_and(matrix1, matrix2_max)
+    return np.sum(C_AND) / np.sum(np.logical_or(matrix1, matrix2))
 
 def get_max_matches(
         db_cmap: List[Tuple[int, int]],
@@ -155,4 +157,4 @@ def get_max_matches(
         if TP > max_matches:
             max_matches = TP
     
-    return int(max_matches)
+    return max_matches
